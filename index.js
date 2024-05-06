@@ -1,24 +1,36 @@
 const express = require('express')
 const cors = require('cors')
+const jwt = require('jsonwebtoken')
+const cookieParser =require('cookie-parser')
+
 require('dotenv').config()
 const prot = process.env.PORT || 3000
-const jwt = require('jsonwebtoken')
-const cookieParser = require('cookie-parser')
+
+
 const app = express()
 
 
 //middleware
 app.use(express.json())
-app.use(cors({
-  origin:['http://localhost:5173'],
-  credentials:true
-}))
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://car-doctor-8dad4.web.app",
+      "https://car-doctor-8dad4.firebaseapp.com",
+    ],
+    credentials: true,
+  })
+);
 app.use(cookieParser())
+
+//myOwn Middleware
+
 
 //mongodb
 
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const uri = "mongodb+srv://Car-doctor:PF8DOhuVL01SmNkB@cluster0.iwngqer.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const { MongoClient, ServerApiVersion, ObjectId, MaxKey } = require('mongodb');
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.iwngqer.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -30,25 +42,28 @@ const client = new MongoClient(uri, {
 });
 
 //my middleware
-
-
-const varifyToken = async(req,res,next)=>{
-  const token = req.cookies?.token
-  console.log(token)
+const verifyToken =(req,res,next)=>{
+  const token =req.cookies?.token
   if(!token){
-    return res.status(401).send({message:'unAuthorized'})
+    return res.status(401).send('unAuthorize')
   }
-  jwt.verify(token,process.env.JWT_SERECT,(err,decode)=>{
+  jwt.verify(token,process.env.JWT_SERECT,(err,decoded)=>{
     if(err){
-      console.log(err)
-      return res.status(401).send('unAuthorize')
+      res.status(401).send('unAuthorize')
     }
-    console.log('Decoded token:', decode);
-    req.user= decode;
+    req.user = decoded
     next()
   })
 
 }
+
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+};
+
+
 
 async function run() {
   try {
@@ -65,38 +80,40 @@ async function run() {
    
         res.send(result)
     })
-
+app.post('/logout',(req,res)=>{
+  const token = req.body.cookie
+  res.clearCookie('token', { ...cookieOptions, maxAge: 0 }).send({status:true})
+})
   //data get with quarry
-  app.get('/booking',varifyToken,async(req,res)=>{
-    if(req.user.email !== req.query?.email){
-      return res.status(403).send({message:'forbidden'})
-    }
+  app.get('/booking',verifyToken,async(req,res)=>{
+    
     let quarry ={}
     if(req.query?.email){
       
       quarry = {email:req.query.email}
       const result = await bookingCollection.find(quarry).toArray()
-     
+     const user = req.user?.email
+     console.log(user)
+     if(req.query.email!== user){
+      return res.status(403).send('forbidden')
+
+     }
       // console.log(req.cookies.token)
       res.send(result)
     }
   })
-  //set cookie 
-  app.post('/jwt',(req,res)=>{
-    const user = req.body
-    const token = jwt.sign(user,process.env.JWT_SERECT,{
-        expiresIn:'1h'
-    })
+  
+//set cookie 
+app.post('/jwt',(req,res)=>{
+  const user = req.body
+  const token = jwt.sign(user,process.env.JWT_SERECT,{expiresIn:'1h'})
+  res.
+  cookie('token',token,cookieOptions)
+  .send({status:true})
 
-    res.cookie('token',token,{
-      httpOnly:true,
-      secure:false,
-   
+})
 
 
-    })  
-    .send({status:true})
-  })
   //patch data in axios
   app.patch('/booking/:id' ,async(req,res)=>{
     const id = req.params.id
